@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   SignInButton,
   SignUpButton,
@@ -10,6 +10,187 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL
 
+const KEY_ITEMS = {
+  expectedSwing: {
+    title: 'Expected Swing',
+    body: 'Shows the estimated points advantage or disadvantage created by your effective ownership compared with managers around your rank. Positive (+) means you are more exposed to the player’s points. Negative (−) means you are less exposed.'
+  },
+  yourEO: {
+    title: 'Your EO',
+    body: 'Your Effective Ownership (EO) describes how strongly your team is affected by this player’s points through ownership, captaincy and Triple Captaincy.'
+  },
+  tierEO: {
+    title: 'Tier EO',
+    body: 'The average Effective Ownership of managers around your rank. It is your benchmark for comparison.'
+  },
+  eoDifference: {
+    title: 'EO Difference',
+    body: 'The difference between your EO and the average EO of managers around your rank. For example, 200% Your EO minus 152% Tier EO equals +48%.'
+  },
+  ownership: {
+    title: 'Ownership',
+    body: 'The percentage of managers in your comparison group who own the player.'
+  },
+  captaincy: {
+    title: 'Captaincy',
+    body: 'The percentage of managers in your comparison group who captain the player.'
+  },
+  tripleCaptain: {
+    title: 'Triple Captaincy',
+    body: 'The percentage of managers in your comparison group who Triple Captain the player.'
+  },
+  percentile: {
+    title: 'Exposure Percentile',
+    body: 'Shows where your Effective Ownership sits compared with the managers in your comparison group. For example, the 96th percentile means your exposure is higher than roughly 96% of the sampled exposure values.'
+  },
+  expectedPoints: {
+    title: 'Expected Points',
+    body: 'The number of points you expect this player to score. This estimate is used to convert your EO difference into an expected points swing.'
+  },
+  decision: {
+    title: 'Your Decision',
+    body: 'The ownership, captaincy and Triple Captain choices you made for this analysis. These choices determine your Effective Ownership.'
+  },
+  rank: {
+    title: 'Global Rank',
+    body: 'Your FPL global rank. It determines which group of managers is used as your comparison tier.'
+  },
+  rankTier: {
+    title: 'Rank Tier',
+    body: 'The rank band containing your FPL rank. Managers from this band are used as your comparison group.'
+  },
+  gameweek: {
+    title: 'Gameweek',
+    body: 'The FPL gameweek that the analysis refers to.'
+  },
+  season: {
+    title: 'Season',
+    body: 'The FPL season associated with this analysis.'
+  },
+  analyses: {
+    title: 'Analyses Remaining',
+    body: 'The number of free analyses remaining for the current gameweek. Opening the Key does not consume a trial.'
+  }
+}
+
+function useDraggable() {
+  const position = useRef({ x: 0, y: 0 })
+  const drag = useRef(null)
+  const [style, setStyle] = useState({})
+
+  function startDrag(event) {
+    if (event.button !== 0 && event.button !== 2) return
+
+    event.preventDefault()
+
+    drag.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: position.current.x,
+      originY: position.current.y,
+    }
+
+    const move = (e) => {
+      if (!drag.current) return
+
+      const dx = e.clientX - drag.current.startX
+      const dy = e.clientY - drag.current.startY
+
+      const x = drag.current.originX + dx
+      const y = drag.current.originY + dy
+
+      position.current = { x, y }
+
+      setStyle({
+        transform: `translate3d(${x}px, ${y}px, 0)`,
+      })
+    }
+
+    const stop = () => {
+      drag.current = null
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
+
+  function preventMenu(event) {
+    event.preventDefault()
+  }
+
+  return {
+    style,
+    startDrag,
+    preventMenu,
+  }
+}
+
+function FloatingKey({ item, onClose }) {
+  const { style, startDrag, preventMenu } = useDraggable()
+
+  if (!item) return null
+
+  return (
+    <div
+      className="floating-key"
+      style={style}
+      onContextMenu={preventMenu}
+    >
+      <div
+        className="floating-key-header"
+        onPointerDown={startDrag}
+      >
+        <div>
+          <span className="floating-key-label">KEY</span>
+          <h3>{item.title}</h3>
+        </div>
+
+        <button
+          type="button"
+          className="floating-key-close"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onClose}
+          aria-label="Close explanation"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="floating-key-body">
+        {item.body}
+      </div>
+    </div>
+  )
+}
+
+function ResultKey({ onSelect }) {
+  return (
+    <section className="result-key">
+      <div className="result-key-heading">
+        <p className="eyebrow">REFERENCE</p>
+        <h2>Understand your result</h2>
+        <p>Tap any metric to see what it means.</p>
+      </div>
+
+      <div className="result-key-grid">
+        {Object.entries(KEY_ITEMS).map(([id, item]) => (
+          <button
+            key={id}
+            type="button"
+            className="result-key-item"
+            onClick={() => onSelect(id)}
+          >
+            <span>{item.title}</span>
+            <span className="result-key-arrow">→</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function App() {
   const { isSignedIn } = useUser()
   const { getToken } = useAuth()
@@ -18,8 +199,13 @@ function App() {
   const [accountLinked, setAccountLinked] = useState(false)
   const [teamId, setTeamId] = useState('')
   const [error, setError] = useState('')
+  const openKey = (id) => setSelectedKey(id)
+
+  const [selectedKey, setSelectedKey] = useState(null)
   const [templates, setTemplates] = useState(null)
+  const [allPlayers, setAllPlayers] = useState([])
   const [selectedPlayer, setSelectedPlayer] = useState('')
+  const [playerSearch, setPlayerSearch] = useState('')
   const [owns, setOwns] = useState(true)
   const [captain, setCaptain] = useState(false)
   const [tripleCaptain, setTripleCaptain] = useState(false)
@@ -139,6 +325,29 @@ function App() {
     }
   }
 
+  async function loadAllPlayers() {
+    setError('')
+
+    try {
+      const token = await getToken()
+
+      const response = await fetch(API_URL + "/api/calculator/players", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load players.')
+      }
+
+      setAllPlayers(data.players || [])
+    } catch (err) {
+      setError(err.message || 'Failed to load players.')
+    }
+  }
   async function analyzeRisk() {
     if (!selectedPlayer) {
       setError('Select a player.')
@@ -248,32 +457,90 @@ function App() {
               <button
                 type="button"
                 className="button primary large"
-                onClick={loadTemplates}
+                onClick={async () => { await loadTemplates(); await loadAllPlayers() }}
                 disabled={accountLoading}
               >
                 Load calculator
               </button>
             ) : (
               <>
+                <section className="template-players">
+                  <div className="template-heading">
+                    <p className="eyebrow">YOUR RANK TIER</p>
+                    <h2>Popular picks</h2>
+                    <p>Start with one of the five most-used players around your rank.</p>
+                  </div>
+
+                  <div className="template-player-grid">
+                    {templates.players?.slice(0, 5).map((player) => (
+                      <button
+                        type="button"
+                        key={player.playerId}
+                        className={
+                          "template-player" +
+                          (selectedPlayer === String(player.playerId)
+                            ? " selected"
+                            : "")
+                        }
+                        onClick={() => {
+                          setSelectedPlayer(String(player.playerId))
+                          setPlayerSearch(player.name)
+                        }}
+                      >
+                        <span className="template-rank">#{player.rank}</span>
+                        <strong>{player.name}</strong>
+                        <span>{player.ownershipPct}% owned</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
                 <div className="calculator-form">
                   <label>
                     Player
-                    <select
-                      value={selectedPlayer}
-                      onChange={(event) =>
-                        setSelectedPlayer(event.target.value)
-                      }
-                    >
-                      {templates.players?.map((player) => (
-                        <option
-                          key={player.playerId}
-                          value={player.playerId}
-                        >
-                          {player.name}
-                        </option>
-                      ))}
-                    </select>
+                    <input
+                      type="text"
+                      placeholder="Search any FPL player..."
+                      value={playerSearch}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setPlayerSearch(value)
+
+                        const match = allPlayers.find((player) =>
+                          player.name.toLowerCase().includes(value.toLowerCase())
+                        )
+
+                        if (match) {
+                          setSelectedPlayer(String(match.playerId))
+                        }
+                      }}
+                    />
                   </label>
+
+                  {playerSearch && (
+                    <div className="player-search-results">
+                      {allPlayers
+                        .filter((player) =>
+                          player.name
+                            .toLowerCase()
+                            .includes(playerSearch.toLowerCase())
+                        )
+                        .slice(0, 8)
+                        .map((player) => (
+                          <button
+                            type="button"
+                            key={player.playerId}
+                            className="player-search-result"
+                            onClick={() => {
+                              setSelectedPlayer(String(player.playerId))
+                              setPlayerSearch(player.name)
+                            }}
+                          >
+                            <span>{player.name}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
 
                   <label>
                     Expected points
@@ -356,13 +623,13 @@ function App() {
                       </div>
 
                       <div>
-                        <strong>{result.userExposure}</strong>
-                        <span>Your exposure</span>
+                        <strong>{(Number(result.userExposure) * 100).toFixed(0)}%</strong>
+                        <span>Your EO</span>
                       </div>
 
                       <div>
-                        <strong>{result.tierExposure}</strong>
-                        <span>Tier average</span>
+                        <strong>{(Number(result.tierExposure) * 100).toFixed(0)}%</strong>
+                        <span>Tier EO</span>
                       </div>
 
                       <div>
@@ -371,8 +638,11 @@ function App() {
                       </div>
 
                       <div>
-                        <strong>{result.exposureDistanceFromMean}</strong>
-                        <span>Distance from mean</span>
+                        <strong>{(() => {
+  const diff = (Number(result.userExposure) - Number(result.tierExposure)) * 100
+  return (diff > 0 ? '+' : '') + diff.toFixed(0) + '%'
+})()}</strong>
+                        <span>EO Difference</span>
                       </div>
 
                       <div>
@@ -380,6 +650,8 @@ function App() {
                         <span>Relative expected swing</span>
                       </div>
                     </div>
+
+                    <ResultKey onSelect={openKey} />
 
                     {result.usage && (
                       <p className="usage">
@@ -425,6 +697,11 @@ function App() {
           </p>
         )}
       </section>
+    <FloatingKey
+      item={selectedKey ? KEY_ITEMS[selectedKey] : null}
+      onClose={() => setSelectedKey(null)}
+    />
+
     </main>
   )
 }
