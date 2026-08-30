@@ -371,7 +371,7 @@ function App() {
     setResult(null)
 
     try {
-      const token = await getToken()
+      const token = await getToken(); alert('TOKEN: ' + (token ? 'YES (' + token.length + ' chars)' : 'NO'))
 
       const response = await fetch(`${API_URL}/api/calculator/analyze`, {
         method: 'POST',
