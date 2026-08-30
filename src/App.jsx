@@ -653,6 +653,50 @@ function App() {
                       </div>
                     </div>
 
+                    {result.rankImpact && (
+                      <section className="rank-impact-card">
+                        <div className="rank-impact-header">
+                          <div>
+                            <span className="rank-impact-label">RANK IMPACT</span>
+                            <h3>Estimated movement</h3>
+                          </div>
+                          <span className="rank-impact-premium">PREMIUM</span>
+                        </div>
+
+                        <div className="rank-impact-primary">
+                          <strong>
+                            {result.rankImpact.estimatedPlaces >= 0 ? '+' : ''}
+                            {Number(result.rankImpact.estimatedPlaces).toLocaleString()}
+                          </strong>
+                          <span>places</span>
+                        </div>
+
+                        <div className="rank-impact-details">
+                          <div>
+                            <strong>
+                              #{Number(result.rankImpact.currentRank).toLocaleString()}
+                            </strong>
+                            <span>Current rank</span>
+                          </div>
+
+                          <div>
+                            <strong>
+                              #{Number(result.rankImpact.estimatedRank).toLocaleString()}
+                            </strong>
+                            <span>Estimated rank</span>
+                          </div>
+
+                          <div>
+                            <strong>
+                              {Number(result.rankImpact.range.low).toLocaleString()}–
+                              {Number(result.rankImpact.range.high).toLocaleString()}
+                            </strong>
+                            <span>Likely range</span>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
                     <ResultKey onSelect={openKey} />
 
                     {result.usage && (
