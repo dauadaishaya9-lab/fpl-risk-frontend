@@ -148,7 +148,7 @@ function App() {
           const data = await apiRequest('/api/calculator/templates', token)
           if (cancelled) return
           setTemplates(data)
-          if (!selectedPlayer && data.players?.[0]) setSelectedPlayer(data.players[0].playerId)
+          if (data.players?.[0]) setSelectedPlayer(data.players[0].playerId)
         }
       } catch (err) {
         if (!cancelled) setError(err.status === 401 ? 'Your authentication session could not be verified. Sign out and sign back in.' : err.message)
