@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   SignInButton,
   SignUpButton,
@@ -8,377 +8,221 @@ import {
 } from '@clerk/react'
 import './App.css'
 
-const API_URL = import.meta.env.VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL || 'https://fpl-risk-backend.onrender.com'
 
-const KEY_ITEMS = {
-  expectedSwing: {
-    title: 'Expected Swing',
-    body: 'Shows the estimated points advantage or disadvantage created by your effective ownership compared with managers around your rank. Positive (+) means you are more exposed to the player’s points. Negative (−) means you are less exposed.'
-  },
-  yourEO: {
-    title: 'Your EO',
-    body: 'Your Effective Ownership (EO) describes how strongly your team is affected by this player’s points through ownership, captaincy and Triple Captaincy.'
-  },
-  tierEO: {
-    title: 'Tier EO',
-    body: 'The average Effective Ownership of managers around your rank. It is your benchmark for comparison.'
-  },
-  eoDifference: {
-    title: 'EO Difference',
-    body: 'The difference between your EO and the average EO of managers around your rank. For example, 200% Your EO minus 152% Tier EO equals +48%.'
-  },
-  ownership: {
-    title: 'Ownership',
-    body: 'The percentage of managers in your comparison group who own the player.'
-  },
-  captaincy: {
-    title: 'Captaincy',
-    body: 'The percentage of managers in your comparison group who captain the player.'
-  },
-  tripleCaptain: {
-    title: 'Triple Captaincy',
-    body: 'The percentage of managers in your comparison group who Triple Captain the player.'
-  },
-  percentile: {
-    title: 'Exposure Percentile',
-    body: 'Shows where your Effective Ownership sits compared with the managers in your comparison group. For example, the 96th percentile means your exposure is higher than roughly 96% of the sampled exposure values.'
-  },
-  expectedPoints: {
-    title: 'Expected Points',
-    body: 'The number of points you expect this player to score. This estimate is used to convert your EO difference into an expected points swing.'
-  },
-  decision: {
-    title: 'Your Decision',
-    body: 'The ownership, captaincy and Triple Captain choices you made for this analysis. These choices determine your Effective Ownership.'
-  },
-  rank: {
-    title: 'Global Rank',
-    body: 'Your FPL global rank. It determines which group of managers is used as your comparison tier.'
-  },
-  rankTier: {
-    title: 'Rank Tier',
-    body: 'The rank band containing your FPL rank. Managers from this band are used as your comparison group.'
-  },
-  gameweek: {
-    title: 'Gameweek',
-    body: 'The FPL gameweek that the analysis refers to.'
-  },
-  season: {
-    title: 'Season',
-    body: 'The FPL season associated with this analysis.'
-  },
-  analyses: {
-    title: 'Analyses Remaining',
-    body: 'The number of free analyses remaining for the current gameweek. Opening the Key does not consume a trial.'
-  }
+const KEY_ITEMS = [
+  ['Ownership', 'Managers in your rank tier who own the player.'],
+  ['Captaincy', 'Managers in your rank tier who captain the player.'],
+  ['Triple Captaincy', 'Managers in your rank tier using Triple Captain on the player.'],
+  ['Your EO', 'Your effective exposure after ownership, captaincy and Triple Captaincy.'],
+  ['Tier EO', 'Average effective exposure across the sampled managers in your tier.'],
+  ['EO Difference', 'Your effective exposure minus the tier average.'],
+  ['Exposure percentile', 'Where your exposure sits compared with sampled managers.'],
+  ['Relative expected swing', 'Estimated points gained or lost versus the sampled tier.'],
+]
+
+function formatPercent(value, digits = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? `${n.toFixed(digits)}%` : '—'
 }
 
-function useDraggable() {
-  const position = useRef({ x: 0, y: 0 })
-  const drag = useRef(null)
-  const [style, setStyle] = useState({})
-
-  function startDrag(event) {
-    if (event.button !== 0 && event.button !== 2) return
-
-    event.preventDefault()
-
-    drag.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: position.current.x,
-      originY: position.current.y,
-    }
-
-    const move = (e) => {
-      if (!drag.current) return
-
-      const dx = e.clientX - drag.current.startX
-      const dy = e.clientY - drag.current.startY
-
-      const x = drag.current.originX + dx
-      const y = drag.current.originY + dy
-
-      position.current = { x, y }
-
-      setStyle({
-        transform: `translate3d(${x}px, ${y}px, 0)`,
-      })
-    }
-
-    const stop = () => {
-      drag.current = null
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-    }
-
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-  }
-
-  function preventMenu(event) {
-    event.preventDefault()
-  }
-
-  return {
-    style,
-    startDrag,
-    preventMenu,
-  }
+function formatEO(value) {
+  const n = Number(value) * 100
+  return Number.isFinite(n) ? `${n.toFixed(0)}%` : '—'
 }
 
-function FloatingKey({ item, onClose }) {
-  const { style, startDrag, preventMenu } = useDraggable()
+function formatNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toLocaleString() : '—'
+}
 
-  if (!item) return null
+async function apiRequest(path, token, options = {}) {
+  if (!token) throw new Error('Your sign-in session is not ready. Please try again.')
 
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  })
+
+  const contentType = response.headers.get('content-type') || ''
+  const data = contentType.includes('application/json')
+    ? await response.json()
+    : { error: await response.text() }
+
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status})`)
+    error.status = response.status
+    error.code = data.code
+    error.data = data
+    throw error
+  }
+
+  return data
+}
+
+function Stat({ label, value, tone = '' }) {
   return (
-    <div
-      className="floating-key"
-      style={style}
-      onContextMenu={preventMenu}
-    >
-      <div
-        className="floating-key-header"
-        onPointerDown={startDrag}
-      >
-        <div>
-          <span className="floating-key-label">KEY</span>
-          <h3>{item.title}</h3>
-        </div>
-
-        <button
-          type="button"
-          className="floating-key-close"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={onClose}
-          aria-label="Close explanation"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="floating-key-body">
-        {item.body}
-      </div>
+    <div className="stat">
+      <span>{label}</span>
+      <strong className={tone}>{value}</strong>
     </div>
   )
 }
 
-function ResultKey({ onSelect }) {
+function ExposureBar({ value, label }) {
+  const width = Math.max(0, Math.min(100, Number(value) * 100))
   return (
-    <section className="result-key">
-      <div className="result-key-heading">
-        <p className="eyebrow">REFERENCE</p>
-        <h2>Understand your result</h2>
-        <p>Tap any metric to see what it means.</p>
+    <div className="exposure-row">
+      <div className="exposure-label">
+        <span>{label}</span>
+        <strong>{formatEO(value)}</strong>
       </div>
-
-      <div className="result-key-grid">
-        {Object.entries(KEY_ITEMS).map(([id, item]) => (
-          <button
-            key={id}
-            type="button"
-            className="result-key-item"
-            onClick={() => onSelect(id)}
-          >
-            <span>{item.title}</span>
-            <span className="result-key-arrow">→</span>
-          </button>
-        ))}
-      </div>
-    </section>
+      <div className="bar-track"><div className="bar-fill" style={{ width: `${width}%` }} /></div>
+    </div>
   )
 }
 
 function App() {
-  const { isSignedIn } = useUser()
-  const { getToken } = useAuth()
+  const { isLoaded: authLoaded, isSignedIn, getToken } = useAuth()
+  const { user } = useUser()
 
-  const [accountLoading, setAccountLoading] = useState(false)
-  const [accountLinked, setAccountLinked] = useState(false)
   const [teamId, setTeamId] = useState('')
-  const [error, setError] = useState('')
-  const openKey = (id) => setSelectedKey(id)
-
-  const [selectedKey, setSelectedKey] = useState(null)
+  const [account, setAccount] = useState(null)
   const [templates, setTemplates] = useState(null)
-  const [allPlayers, setAllPlayers] = useState([])
-  const [selectedPlayer, setSelectedPlayer] = useState('')
-  const [playerSearch, setPlayerSearch] = useState('')
+  const [players, setPlayers] = useState([])
+  const [query, setQuery] = useState('')
+  const [selectedPlayer, setSelectedPlayer] = useState(null)
   const [owns, setOwns] = useState(true)
   const [captain, setCaptain] = useState(false)
   const [tripleCaptain, setTripleCaptain] = useState(false)
   const [expectedPoints, setExpectedPoints] = useState('')
-  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [usage, setUsage] = useState(null)
   const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [working, setWorking] = useState(false)
+  const [error, setError] = useState('')
+  const [showKey, setShowKey] = useState(false)
+
+  const selectedTemplate = useMemo(
+    () => templates?.players?.find(p => Number(p.playerId) === Number(selectedPlayer)) || null,
+    [templates, selectedPlayer],
+  )
+
+  const filteredPlayers = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return players.slice(0, 10)
+    return players.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12)
+  }, [players, query])
 
   useEffect(() => {
+    if (!authLoaded) return
     if (!isSignedIn) {
-      setAccountLinked(false)
-      setTeamId('')
-      setError('')
+      setAccount(null)
       setTemplates(null)
+      setPlayers([])
       setResult(null)
+      setUsage(null)
+      setLoading(false)
       return
     }
 
-    async function checkAccount() {
-      setAccountLoading(true)
+    let cancelled = false
+    async function boot() {
+      setLoading(true)
       setError('')
-
       try {
         const token = await getToken()
-
-        const response = await fetch(`${API_URL}/api/account/fpl`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to check FPL account.')
+        const [linked, usageData] = await Promise.all([
+          apiRequest('/api/account/fpl', token),
+          apiRequest('/api/calculator/usage', token),
+        ])
+        if (cancelled) return
+        setAccount(linked.linked ? linked : null)
+        setUsage(usageData)
+        if (linked.linked) {
+          const data = await apiRequest('/api/calculator/templates', token)
+          if (cancelled) return
+          setTemplates(data)
+          if (!selectedPlayer && data.players?.[0]) setSelectedPlayer(data.players[0].playerId)
         }
-
-        setAccountLinked(Boolean(data.linked))
       } catch (err) {
-        setError(err.message || 'Failed to connect to the backend.')
+        if (!cancelled) setError(err.status === 401 ? 'Your authentication session could not be verified. Sign out and sign back in.' : err.message)
       } finally {
-        setAccountLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+    boot()
+    return () => { cancelled = true }
+  }, [authLoaded, isSignedIn, getToken])
 
-    checkAccount()
-  }, [isSignedIn, getToken])
-
-  async function linkTeam() {
+  async function linkTeam(event) {
+    event.preventDefault()
     const id = teamId.trim()
-
-    if (!id || !/^\d+$/.test(id)) {
+    if (!/^\d+$/.test(id) || Number(id) <= 0) {
       setError('Enter a valid FPL Team ID.')
       return
     }
 
-    setAccountLoading(true)
+    setWorking(true)
     setError('')
-
     try {
       const token = await getToken()
-
-      const response = await fetch(`${API_URL}/api/account/fpl`, {
+      const data = await apiRequest('/api/account/fpl', token, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          fplId: Number(id),
-        }),
+        body: JSON.stringify({ fplId: Number(id) }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to link your FPL account.')
-      }
-
-      setAccountLinked(true)
+      setAccount(data)
       setTeamId('')
+      const [templateData, usageData] = await Promise.all([
+        apiRequest('/api/calculator/templates', token),
+        apiRequest('/api/calculator/usage', token),
+      ])
+      setTemplates(templateData)
+      setUsage(usageData)
+      setSelectedPlayer(templateData.players?.[0]?.playerId || null)
     } catch (err) {
-      setError(err.message || 'Failed to link your FPL account.')
+      if (err.status === 401) setError('Authentication failed. Your Clerk session was not accepted by the backend.')
+      else setError(err.message)
     } finally {
-      setAccountLoading(false)
+      setWorking(false)
     }
   }
 
-  async function loadTemplates() {
-    setAccountLoading(true)
-    setError('')
+  async function loadPlayers() {
+    if (players.length) return
+    try {
+      const token = await getToken()
+      const data = await apiRequest('/api/calculator/players', token)
+      setPlayers(data.players || [])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  function choosePlayer(player) {
+    setSelectedPlayer(Number(player.playerId))
+    setQuery('')
     setResult(null)
-
-    try {
-      const token = await getToken()
-
-      const response = await fetch(`${API_URL}/api/calculator/templates`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load calculator data.')
-      }
-
-      setTemplates(data)
-
-      if (data.players?.length && !selectedPlayer) {
-        setSelectedPlayer(String(data.players[0].playerId))
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to load calculator data.')
-    } finally {
-      setAccountLoading(false)
-    }
   }
 
-  async function loadAllPlayers() {
-    setError('')
-
-    try {
-      const token = await getToken()
-
-      const response = await fetch(API_URL + "/api/calculator/players", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load players.')
-      }
-
-      setAllPlayers(data.players || [])
-    } catch (err) {
-      setError(err.message || 'Failed to load players.')
-    }
-  }
-  async function analyzeRisk() {
-    if (!selectedPlayer) {
-      setError('Select a player.')
-      return
-    }
-
+  async function analyze() {
+    if (!selectedPlayer) return setError('Choose a player first.')
     const points = Number(expectedPoints)
+    if (!Number.isFinite(points) || points < 0 || points > 100) return setError('Enter expected points between 0 and 100.')
+    if (tripleCaptain && !captain) return setError('Triple Captain requires Captain.')
 
-    if (!Number.isFinite(points) || points < 0 || points > 100) {
-      setError('Expected points must be between 0 and 100.')
-      return
-    }
-
-    if (tripleCaptain && !captain) {
-      setError('Triple Captain requires Captain to be selected.')
-      return
-    }
-
-    setAnalysisLoading(true)
+    setWorking(true)
     setError('')
     setResult(null)
-
     try {
       const token = await getToken()
-
-      const response = await fetch(`${API_URL}/api/calculator/analyze`, {
+      const data = await apiRequest('/api/calculator/analyze', token, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({
           playerId: Number(selectedPlayer),
           owns,
@@ -387,367 +231,101 @@ function App() {
           expectedPoints: points,
         }),
       })
-
-      console.log("ANALYZE HTTP:", response.status, response.statusText, response.headers.get("content-type"))
-      const data = await response.json()
-      console.log("ANALYZE RESPONSE:", data)
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Risk analysis failed.')
-      }
-
       setResult(data)
+      setUsage(data.usage || usage)
     } catch (err) {
-      setError(err.message || 'Risk analysis failed.')
+      if (err.status === 429) setError(`${err.message}${err.data?.resetsAt ? ` Resets at ${new Date(err.data.resetsAt).toLocaleString()}.` : ''}`)
+      else setError(err.message)
     } finally {
-      setAnalysisLoading(false)
+      setWorking(false)
     }
   }
 
+  if (!authLoaded || loading) {
+    return <div className="loading-screen"><div className="loader" /><span>Loading FPL Risk</span></div>
+  }
+
+  if (!isSignedIn) {
+    return (
+      <main className="landing">
+        <div className="landing-glow" />
+        <header className="topbar"><div className="logo"><span>FPL</span> RISK</div><div className="auth-actions"><SignInButton mode="modal"><button className="button ghost">Sign in</button></SignInButton><SignUpButton mode="modal"><button className="button primary">Get started</button></SignUpButton></div></header>
+        <section className="hero">
+          <div className="eyebrow">FANTASY PREMIER LEAGUE · DECISION ENGINE</div>
+          <h1>Know the risk<br /><em>before</em> you click.</h1>
+          <p>See how your ownership, captaincy and Triple Captaincy decisions compare with managers around your global rank.</p>
+          <div className="hero-actions"><SignUpButton mode="modal"><button className="button primary large">Start calculating <span>→</span></button></SignUpButton><span className="micro">3 free analyses each gameweek</span></div>
+          <div className="hero-preview"><div className="preview-label">EXAMPLE DECISION</div><div className="preview-player"><div className="avatar">S</div><div><strong>Salah</strong><span>Captain · 14.2 expected points</span></div><b className="up">+4.8 pts</b></div></div>
+        </section>
+      </main>
+    )
+  }
+
   return (
-    <main className="app">
-      <header className="header">
-        <div className="brand">
-          <span className="brand-mark">FPL</span>
-          <span>Risk Calculator</span>
-        </div>
-
-        <div className="auth-controls">
-          {isSignedIn ? (
-            <UserButton />
-          ) : (
-            <>
-              <SignInButton mode="modal">
-                <button className="button secondary">Sign in</button>
-              </SignInButton>
-
-              <SignUpButton mode="modal">
-                <button className="button primary">Sign up</button>
-              </SignUpButton>
-            </>
-          )}
-        </div>
+    <main className="app-shell">
+      <header className="topbar app-topbar">
+        <div className="logo"><span>FPL</span> RISK</div>
+        <div className="top-meta"><span className="season-dot" /> LIVE ENGINE <UserButton /></div>
       </header>
 
-      <section className="hero-section">
-        <p className="eyebrow">FPL decision intelligence</p>
+      <div className="page">
+        {error && <div className="alert"><span>!</span><div>{error}</div><button onClick={() => setError('')}>×</button></div>}
 
-        <h1>
-          Know the risk
-          <br />
-          behind your picks.
-        </h1>
+        {!account ? (
+          <section className="connect-card">
+            <div className="connect-copy"><div className="eyebrow">STEP 01 · IDENTIFY YOUR TEAM</div><h1>Connect your FPL team.</h1><p>We use your current global rank to put your decisions against the right comparison group.</p><div className="trust-row"><span>✓ Current-season verification</span><span>✓ Your ID is stored securely</span></div></div>
+            <form className="connect-form" onSubmit={linkTeam}><label>FPL Team ID</label><div className="input-row"><input inputMode="numeric" value={teamId} onChange={e => setTeamId(e.target.value)} placeholder="e.g. 1234567" /><button className="button primary" disabled={working}>{working ? 'Verifying…' : 'Connect →'}</button></div><small>Find it in FPL under Points / Gameweek history.</small></form>
+          </section>
+        ) : (
+          <>
+            <section className="dashboard-head">
+              <div><div className="eyebrow">FPL RISK ENGINE · GW {templates?.gameweek ?? '—'}</div><h1>Make the decision.<br /><span>See the consequence.</span></h1><p>Hi {account.playerName || user?.firstName || 'manager'}. Your rank is <strong>#{formatNumber(account.rank ?? templates?.manager?.rank)}</strong> in the <strong>{templates?.tier?.name || 'current tier'}</strong> band.</p></div>
+              {usage && <div className="usage-pill"><strong>{usage.unlimited ? 'UNLIMITED' : `${usage.remaining} / ${usage.limit}`}</strong><span>analyses left</span></div>}
+            </section>
 
-        <p className="description">
-          Compare your captaincy and ownership decisions against managers
-          around your rank.
-        </p>
+            <section className="calculator-grid">
+              <div className="panel decision-panel">
+                <div className="panel-heading"><div><span className="step">02</span><div><h2>Build your decision</h2><p>Tell us what you're considering.</p></div></div></div>
 
-        {!isSignedIn ? (
-          <SignUpButton mode="modal">
-            <button className="button primary large">Get started</button>
-          </SignUpButton>
-        ) : accountLoading ? (
-          <div className="welcome">Checking your FPL account...</div>
-        ) : accountLinked ? (
-          <div className="calculator">
-            <div className="welcome">
-              <p>You're signed in. Your calculator is ready.</p>
-            </div>
+                <div className="field"><label>Player</label><button className="player-select" onClick={loadPlayers} type="button"><span>{selectedTemplate?.name || result?.player?.name || 'Choose a player'}</span><span>⌄</span></button>{(players.length > 0 || query) && <div className="player-picker"><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search players…" />{filteredPlayers.map(player => <button type="button" key={player.playerId} onClick={() => choosePlayer(player)}>{player.name}<span>#{player.playerId}</span></button>)}</div>}</div>
 
-            {!templates ? (
-              <button
-                type="button"
-                className="button primary large"
-                onClick={async () => { await loadTemplates(); await loadAllPlayers() }}
-                disabled={accountLoading}
-              >
-                Load calculator
-              </button>
-            ) : (
-              <>
-                <section className="template-players">
-                  <div className="template-heading">
-                    <p className="eyebrow">YOUR RANK TIER</p>
-                    <h2>Popular picks</h2>
-                    <p>Start with one of the five most-used players around your rank.</p>
-                  </div>
+                <div className="field"><label>Expected points</label><div className="points-input"><input inputMode="decimal" value={expectedPoints} onChange={e => setExpectedPoints(e.target.value)} placeholder="0" /><span>pts</span></div><small>What you realistically expect the player to score this gameweek.</small></div>
 
-                  <div className="template-player-grid">
-                    {templates.players?.slice(0, 5).map((player) => (
-                      <button
-                        type="button"
-                        key={player.playerId}
-                        className={
-                          "template-player" +
-                          (selectedPlayer === String(player.playerId)
-                            ? " selected"
-                            : "")
-                        }
-                        onClick={() => {
-                          setSelectedPlayer(String(player.playerId))
-                          setPlayerSearch(player.name)
-                        }}
-                      >
-                        <span className="template-rank">#{player.rank}</span>
-                        <strong>{player.name}</strong>
-                        <span>{player.ownershipPct}% owned</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
+                <div className="decision-options"><label>YOUR EXPOSURE</label><div className="toggle-row"><button className={owns ? 'toggle active' : 'toggle'} onClick={() => setOwns(v => !v)} type="button"><span className="switch" /> Own</button><button className={captain ? 'toggle active' : 'toggle'} onClick={() => setCaptain(v => !v)} type="button"><span className="switch" /> Captain</button><button className={tripleCaptain ? 'toggle active' : 'toggle'} onClick={() => { setTripleCaptain(v => !v); setCaptain(true) }} type="button"><span className="switch" /> Triple Captain</button></div></div>
 
-                <div className="calculator-form">
-                  <label>
-                    Player
-                    <input
-                      type="text"
-                      placeholder="Search any FPL player..."
-                      value={playerSearch}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        setPlayerSearch(value)
+                <button className="button primary analyze-button" disabled={working || !selectedPlayer} onClick={analyze}>{working ? 'Calculating risk…' : 'Analyze risk →'}</button>
+              </div>
 
-                        const match = allPlayers.find((player) =>
-                          player.name.toLowerCase().includes(value.toLowerCase())
-                        )
+              <div className="panel tier-panel">
+                <div className="panel-heading"><div><span className="step">03</span><div><h2>Your comparison group</h2><p>Live from the latest completed snapshot.</p></div></div></div>
+                {templates?.players?.length ? <div className="template-list">{templates.players.map(player => <button key={player.playerId} className={Number(selectedPlayer) === Number(player.playerId) ? 'template selected' : 'template'} onClick={() => choosePlayer(player)}><span className="template-rank">0{player.rank}</span><span className="template-name">{player.name}<small>{formatPercent(player.ownershipPct, 1)} owned</small></span><span className="template-arrow">→</span></button>)}</div> : <div className="empty">Connect your team to load the current rank-tier templates.</div>}
+                <p className="snapshot">Sample: {templates?.sampleSize ?? '—'} managers · Tier {templates?.tier?.name || '—'}</p>
+              </div>
+            </section>
 
-                        if (match) {
-                          setSelectedPlayer(String(match.playerId))
-                        }
-                      }}
-                    />
-                  </label>
-
-                  {playerSearch && (
-                    <div className="player-search-results">
-                      {allPlayers
-                        .filter((player) =>
-                          player.name
-                            .toLowerCase()
-                            .includes(playerSearch.toLowerCase())
-                        )
-                        .slice(0, 8)
-                        .map((player) => (
-                          <button
-                            type="button"
-                            key={player.playerId}
-                            className="player-search-result"
-                            onClick={() => {
-                              setSelectedPlayer(String(player.playerId))
-                              setPlayerSearch(player.name)
-                            }}
-                          >
-                            <span>{player.name}</span>
-                          </button>
-                        ))}
-                    </div>
-                  )}
-
-                  <label>
-                    Expected points
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      placeholder="e.g. 6.5"
-                      value={expectedPoints}
-                      onChange={(event) =>
-                        setExpectedPoints(event.target.value)
-                      }
-                    />
-                  </label>
-
-                  <label className="choice">
-                    <input
-                      type="checkbox"
-                      checked={owns}
-                      onChange={(event) => setOwns(event.target.checked)}
-                    />
-                    Own player
-                  </label>
-
-                  <label className="choice">
-                    <input
-                      type="checkbox"
-                      checked={captain}
-                      onChange={(event) => {
-                        setCaptain(event.target.checked)
-                        if (!event.target.checked) {
-                          setTripleCaptain(false)
-                        }
-                      }}
-                    />
-                    Captain
-                  </label>
-
-                  <label className="choice">
-                    <input
-                      type="checkbox"
-                      checked={tripleCaptain}
-                      disabled={!captain}
-                      onChange={(event) =>
-                        setTripleCaptain(event.target.checked)
-                      }
-                    />
-                    Triple Captain
-                  </label>
-
-                  <button
-                    type="button"
-                    className="button primary large"
-                    onClick={analyzeRisk}
-                    disabled={analysisLoading}
-                  >
-                    {analysisLoading ? 'Analyzing...' : 'Analyze risk'}
-                  </button>
+            {result && (
+              <section className="results-section">
+                <div className="result-heading"><div><div className="eyebrow">RESULT · {result.player.name}</div><h2>The risk is <span className={Number(result.relativeSwing) >= 0 ? 'positive' : 'negative'}>{Number(result.relativeSwing) >= 0 ? 'in your favour' : 'against you'}.</span></h2></div><div className="result-swing"><strong>{Number(result.relativeSwing) >= 0 ? '+' : ''}{Number(result.relativeSwing).toFixed(2)}</strong><span>expected pts</span></div></div>
+                <div className="result-grid">
+                  <div className="result-card"><span>Ownership</span><strong>{formatPercent(result.ownershipPct, 1)}</strong><small>of sampled managers</small></div>
+                  <div className="result-card"><span>Your EO</span><strong>{formatEO(result.userExposure)}</strong><small>your effective exposure</small></div>
+                  <div className="result-card"><span>Tier EO</span><strong>{formatEO(result.tierExposure)}</strong><small>comparison average</small></div>
+                  <div className="result-card"><span>EO Difference</span><strong className={Number(result.userExposure) >= Number(result.tierExposure) ? 'positive' : 'negative'}>{Number(result.userExposure) >= Number(result.tierExposure) ? '+' : ''}{((Number(result.userExposure) - Number(result.tierExposure)) * 100).toFixed(0)}%</strong><small>versus your tier</small></div>
+                  <div className="result-card"><span>Percentile</span><strong>{result.exposurePercentile}</strong><small>exposure position</small></div>
+                  <div className="result-card"><span>Captaincy</span><strong>{formatPercent(result.captainPct, 1)}</strong><small>tier managers</small></div>
                 </div>
 
-                {result && (
-                  <section className="results">
-                    <h2>{result.player.name}</h2>
-
-                    <div className="result-grid">
-                      <div>
-                        <strong>{result.ownershipPct}%</strong>
-                        <span>Ownership</span>
-                      </div>
-
-                      <div>
-                        <strong>{result.captainPct}%</strong>
-                        <span>Captaincy</span>
-                      </div>
-
-                      <div>
-                        <strong>{result.tripleCaptainPct}%</strong>
-                        <span>Triple Captain</span>
-                      </div>
-
-                      <div>
-                        <strong>{(Number(result.userExposure) * 100).toFixed(0)}%</strong>
-                        <span>Your EO</span>
-                      </div>
-
-                      <div>
-                        <strong>{(Number(result.tierExposure) * 100).toFixed(0)}%</strong>
-                        <span>Tier EO</span>
-                      </div>
-
-                      <div>
-                        <strong>{result.exposurePercentile}</strong>
-                        <span>Exposure percentile</span>
-                      </div>
-
-                      <div>
-                        <strong>{(() => {
-  const diff = (Number(result.userExposure) - Number(result.tierExposure)) * 100
-  return (diff > 0 ? '+' : '') + diff.toFixed(0) + '%'
-})()}</strong>
-                        <span>EO Difference</span>
-                      </div>
-
-                      <div>
-                        <strong>{result.relativeSwing}</strong>
-                        <span>Relative expected swing</span>
-                      </div>
-                    </div>
-
-                    {result.rankImpact && (
-                      <section className="rank-impact-card">
-                        <div className="rank-impact-header">
-                          <div>
-                            <span className="rank-impact-label">RANK IMPACT</span>
-                            <h3>Estimated movement</h3>
-                          </div>
-                          <span className="rank-impact-premium">PREMIUM</span>
-                        </div>
-
-                        <div className="rank-impact-primary">
-                          <strong>
-                            {result.rankImpact.estimatedPlaces >= 0 ? '+' : ''}
-                            {Number(result.rankImpact.estimatedPlaces).toLocaleString()}
-                          </strong>
-                          <span>places</span>
-                        </div>
-
-                        <div className="rank-impact-details">
-                          <div>
-                            <strong>
-                              #{Number(result.rankImpact.currentRank).toLocaleString()}
-                            </strong>
-                            <span>Current rank</span>
-                          </div>
-
-                          <div>
-                            <strong>
-                              #{Number(result.rankImpact.estimatedRank).toLocaleString()}
-                            </strong>
-                            <span>Estimated rank</span>
-                          </div>
-
-                          <div>
-                            <strong>
-                              {Number(result.rankImpact.range.low).toLocaleString()}–
-                              {Number(result.rankImpact.range.high).toLocaleString()}
-                            </strong>
-                            <span>Likely range</span>
-                          </div>
-                        </div>
-                      </section>
-                    )}
-
-                    <ResultKey onSelect={openKey} />
-
-                    {result.usage && (
-                      <p className="usage">
-                        Analyses remaining: {result.usage.remaining} /{' '}
-                        {result.usage.limit}
-                      </p>
-                    )}
-                  </section>
-                )}
-              </>
+                <div className="analysis-bottom">
+                  <div className="panel exposure-panel"><div className="mini-heading"><h3>Exposure picture</h3><span>{result.sampleSize} managers sampled</span></div><ExposureBar value={result.userExposure} label="Your EO" /><ExposureBar value={result.tierExposure} label="Tier EO" /><div className="swing-note"><span>Relative expected swing</span><strong className={Number(result.relativeSwing) >= 0 ? 'positive' : 'negative'}>{Number(result.relativeSwing) >= 0 ? '+' : ''}{Number(result.relativeSwing).toFixed(2)} pts</strong></div></div>
+                  {result.rankImpact ? <div className="panel rank-impact"><div className="premium-tag">PREMIUM</div><div className="mini-heading"><h3>Estimated rank impact</h3><span>Snapshot-based estimate</span></div><div className="rank-movement"><strong>{result.rankImpact.estimatedPlaces >= 0 ? '+' : ''}{formatNumber(result.rankImpact.estimatedPlaces)}</strong><span>places</span></div><div className="rank-details"><div><strong>#{formatNumber(result.rankImpact.currentRank)}</strong><span>Current</span></div><div><strong>#{formatNumber(result.rankImpact.estimatedRank)}</strong><span>Estimated</span></div><div><strong>{formatNumber(result.rankImpact.range.low)}–{formatNumber(result.rankImpact.range.high)}</strong><span>Likely range</span></div></div></div> : <div className="panel locked-card"><div className="lock-icon">✦</div><div><span className="premium-tag">PREMIUM</span><h3>See estimated rank movement</h3><p>Turn your points swing into an estimated rank movement using the snapshot dataset.</p></div></div>}
+                </div>
+              </section>
             )}
-          </div>
-        ) : (
-          <div className="account-form">
-            <h2>Connect your FPL team</h2>
 
-            <p>
-              Enter your FPL Team ID once. We'll remember it for this season.
-            </p>
-
-            <input
-              type="number"
-              inputMode="numeric"
-              placeholder="FPL Team ID"
-              value={teamId}
-              onChange={(event) => setTeamId(event.target.value)}
-            />
-
-            <button
-              type="button"
-              className="button primary large"
-              onClick={linkTeam}
-              disabled={accountLoading}
-            >
-              {accountLoading ? 'Connecting...' : 'Connect FPL team'}
-            </button>
-          </div>
+            <section className="footer-tools"><button className="key-button" onClick={() => setShowKey(v => !v)}>What do these numbers mean? <span>{showKey ? '↑' : '→'}</span></button>{showKey && <div className="key-grid">{KEY_ITEMS.map(([title, body]) => <div key={title}><strong>{title}</strong><p>{body}</p></div>)}</div>}</section>
+          </>
         )}
-
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-      </section>
-    <FloatingKey
-      item={selectedKey ? KEY_ITEMS[selectedKey] : null}
-      onClose={() => setSelectedKey(null)}
-    />
-
+      </div>
     </main>
   )
 }
