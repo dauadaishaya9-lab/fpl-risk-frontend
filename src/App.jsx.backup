@@ -1,0 +1,188 @@
+import { useEffect, useState } from 'react'
+import {
+  SignInButton,
+  SignUpButton,
+  UserButton,
+  useAuth,
+  useUser,
+} from '@clerk/react'
+import './App.css'
+
+const API_URL = import.meta.env.VITE_API_URL
+
+function App() {
+  const { isSignedIn } = useUser()
+  const { getToken } = useAuth()
+
+  const [accountLoading, setAccountLoading] = useState(false)
+  const [accountLinked, setAccountLinked] = useState(false)
+  const [teamId, setTeamId] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setAccountLinked(false)
+      setTeamId('')
+      setError('')
+      return
+    }
+
+    async function checkAccount() {
+      setAccountLoading(true)
+      setError('')
+
+      try {
+        const token = await getToken()
+
+        const response = await fetch(`${API_URL}/api/account/fpl`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to check FPL account.')
+        }
+
+        setAccountLinked(Boolean(data.linked))
+      } catch (err) {
+        setError(err.message || 'Failed to connect to the backend.')
+      } finally {
+        setAccountLoading(false)
+      }
+    }
+
+    checkAccount()
+  }, [isSignedIn, getToken])
+
+  async function linkTeam() {
+    const id = teamId.trim()
+
+    if (!id || !/^\d+$/.test(id)) {
+      setError('Enter a valid FPL Team ID.')
+      return
+    }
+
+    setAccountLoading(true)
+    setError('')
+
+    try {
+      const token = await getToken()
+
+      const response = await fetch(`${API_URL}/api/account/fpl`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fplId: Number(id),
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to link your FPL account.')
+      }
+
+      setAccountLinked(true)
+      setTeamId('')
+    } catch (err) {
+      setError(err.message || 'Failed to link your FPL account.')
+    } finally {
+      setAccountLoading(false)
+    }
+  }
+
+  return (
+    <main className="app">
+      <header className="header">
+        <div className="brand">
+          <span className="brand-mark">FPL</span>
+          <span>Risk Calculator</span>
+        </div>
+
+        <div className="auth-controls">
+          {isSignedIn ? (
+            <UserButton />
+          ) : (
+            <>
+              <SignInButton mode="modal">
+                <button className="button secondary">Sign in</button>
+              </SignInButton>
+
+              <SignUpButton mode="modal">
+                <button className="button primary">Sign up</button>
+              </SignUpButton>
+            </>
+          )}
+        </div>
+      </header>
+
+      <section className="hero-section">
+        <p className="eyebrow">FPL decision intelligence</p>
+
+        <h1>
+          Know the risk
+          <br />
+          behind your picks.
+        </h1>
+
+        <p className="description">
+          Compare your captaincy and ownership decisions against managers
+          around your rank.
+        </p>
+
+        {!isSignedIn ? (
+          <SignUpButton mode="modal">
+            <button className="button primary large">Get started</button>
+          </SignUpButton>
+        ) : accountLoading ? (
+          <div className="welcome">
+            Checking your FPL account...
+          </div>
+        ) : accountLinked ? (
+          <div className="welcome">
+            You're signed in. Your calculator is ready.
+          </div>
+        ) : (
+          <div className="account-form">
+            <h2>Connect your FPL team</h2>
+
+            <p>
+              Enter your FPL Team ID once. We'll remember it for this season.
+            </p>
+
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="FPL Team ID"
+              value={teamId}
+              onChange={(event) => setTeamId(event.target.value)}
+            />
+
+            <button
+              type="button"
+              className="button primary large"
+              onClick={linkTeam}
+              disabled={accountLoading}
+            >
+              {accountLoading ? 'Connecting...' : 'Connect FPL team'}
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    </main>
+  )
+}
+
+export default App
