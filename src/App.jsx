@@ -87,6 +87,7 @@ function App() {
   const [players, setPlayers] = useState([])
   const [query, setQuery] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState(null)
+  const [playerPickerOpen, setPlayerPickerOpen] = useState(false)
   const [owns, setOwns] = useState(true)
   const [captain, setCaptain] = useState(false)
   const [tripleCaptain, setTripleCaptain] = useState(false)
@@ -99,6 +100,8 @@ function App() {
   const [showKey, setShowKey] = useState(false)
 
   const selectedTemplate = useMemo(() => templates?.players?.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [templates, selectedPlayer])
+  const selectedGeneralPlayer = useMemo(() => players.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [players, selectedPlayer])
+  const selectedPlayerName = selectedGeneralPlayer?.name || selectedTemplate?.name || result?.player?.name || 'Choose a player'
   const filteredPlayers = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return players.slice(0, 10)
@@ -108,7 +111,7 @@ function App() {
   useEffect(() => {
     if (!authLoaded) return
     if (!isSignedIn) {
-      setAccount(null); setTemplates(null); setPlayers([]); setResult(null); setUsage(null); setLoading(false); return
+      setAccount(null); setTemplates(null); setPlayers([]); setResult(null); setUsage(null); setLoading(false); setPlayerPickerOpen(false); return
     }
     let cancelled = false
     async function boot() {
@@ -147,12 +150,18 @@ function App() {
   }
 
   async function loadPlayers() {
+    setPlayerPickerOpen(true)
     if (players.length) return
     try { const token = await getToken(); const data = await apiRequest('/api/calculator/players', token); setPlayers(data.players || []) }
-    catch (err) { setError(err.message) }
+    catch (err) { setError(err.message); setPlayerPickerOpen(false) }
   }
 
-  function choosePlayer(player) { setSelectedPlayer(Number(player.playerId)); setQuery(''); setResult(null) }
+  function choosePlayer(player) {
+    setSelectedPlayer(Number(player.playerId))
+    setQuery('')
+    setResult(null)
+    setPlayerPickerOpen(false)
+  }
 
   async function analyze() {
     if (!selectedPlayer) return setError('Choose a player first.')
@@ -180,7 +189,7 @@ function App() {
       {error && <div className="alert"><span>!</span><div>{error}</div><button onClick={() => setError('')}>×</button></div>}
       {!account ? <section className="connect-card"><div className="connect-copy"><div className="eyebrow">STEP 01 · IDENTIFY YOUR TEAM</div><h1>Connect your FPL team.</h1><p>We use your current global rank to put your decisions against the right comparison group.</p><div className="trust-row"><span>✓ Current-season verification</span><span>✓ Your ID is stored securely</span></div></div><form className="connect-form" onSubmit={linkTeam}><label>FPL Team ID</label><div className="input-row"><input inputMode="numeric" value={teamId} onChange={e => setTeamId(e.target.value)} placeholder="e.g. 1234567" /><button className="button primary" disabled={working}>{working ? 'Verifying…' : 'Connect →'}</button></div><small>Find it in FPL under Points / Gameweek history.</small></form></section> : <>
         <section className="dashboard-head"><div><div className="eyebrow">FPL RISK ENGINE · GW {templates?.gameweek ?? '—'}</div><h1>Make the decision.<br /><span>See the consequence.</span></h1><p>Hi {account.playerName || user?.firstName || 'manager'}. Your rank is <strong>#{formatNumber(account.rank ?? templates?.manager?.rank)}</strong> in the <strong>{templates?.tier?.name || 'current tier'}</strong> band.</p></div>{usage && <div className="usage-pill"><strong>{usage.unlimited ? 'UNLIMITED' : `${usage.remaining} / ${usage.limit}`}</strong><span>analyses left</span></div>}</section>
-        <section className="calculator-grid"><div className="panel decision-panel"><div className="panel-heading"><div><span className="step">02</span><div><h2>Build your decision</h2><p>Tell us what you're considering.</p></div></div></div><div className="field"><label>Player</label><button className="player-select" onClick={loadPlayers} type="button"><span>{selectedTemplate?.name || result?.player?.name || 'Choose a player'}</span><span>⌄</span></button>{(players.length > 0 || query) && <div className="player-picker"><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search players…" />{filteredPlayers.map(player => <button type="button" key={player.playerId} onClick={() => choosePlayer(player)}>{player.name}<span>#{player.playerId}</span></button>)}</div>}</div><div className="field"><label>Expected points</label><div className="points-input"><input inputMode="decimal" value={expectedPoints} onChange={e => setExpectedPoints(e.target.value)} placeholder="0" /><span>pts</span></div><small>What you realistically expect the player to score this gameweek.</small></div><div className="decision-options"><label>YOUR EXPOSURE</label><div className="toggle-row"><button className={owns ? 'toggle active' : 'toggle'} onClick={() => setOwns(v => !v)} type="button"><span className="switch" /> Own</button><button className={captain ? 'toggle active' : 'toggle'} onClick={() => setCaptain(v => !v)} type="button"><span className="switch" /> Captain</button><button className={tripleCaptain ? 'toggle active' : 'toggle'} onClick={() => { setTripleCaptain(v => !v); setCaptain(true) }} type="button"><span className="switch" /> Triple Captain</button></div></div><button className="button primary analyze-button" disabled={working || !selectedPlayer} onClick={analyze}>{working ? 'Calculating risk…' : 'Analyze risk →'}</button></div>
+        <section className="calculator-grid"><div className="panel decision-panel"><div className="panel-heading"><div><span className="step">02</span><div><h2>Build your decision</h2><p>Tell us what you're considering.</p></div></div></div><div className="field"><label>Player</label><button className="player-select" onClick={() => { if (playerPickerOpen) { setPlayerPickerOpen(false); setQuery('') } else { loadPlayers() } }} type="button"><span>{selectedPlayerName}</span><span>{playerPickerOpen ? '⌃' : '⌄'}</span></button>{playerPickerOpen && <div className="player-picker"><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search players…" />{filteredPlayers.map(player => <button type="button" key={player.playerId} onClick={() => choosePlayer(player)}>{player.name}<span>#{player.playerId}</span></button>)}</div>}</div><div className="field"><label>Expected points</label><div className="points-input"><input inputMode="decimal" value={expectedPoints} onChange={e => setExpectedPoints(e.target.value)} placeholder="0" /><span>pts</span></div><small>What you realistically expect the player to score this gameweek.</small></div><div className="decision-options"><label>YOUR EXPOSURE</label><div className="toggle-row"><button className={owns ? 'toggle active' : 'toggle'} onClick={() => setOwns(v => !v)} type="button"><span className="switch" /> Own</button><button className={captain ? 'toggle active' : 'toggle'} onClick={() => setCaptain(v => !v)} type="button"><span className="switch" /> Captain</button><button className={tripleCaptain ? 'toggle active' : 'toggle'} onClick={() => { setTripleCaptain(v => !v); setCaptain(true) }} type="button"><span className="switch" /> Triple Captain</button></div></div><button className="button primary analyze-button" disabled={working || !selectedPlayer} onClick={analyze}>{working ? 'Calculating risk…' : 'Analyze risk →'}</button></div>
         <div className="panel tier-panel"><div className="panel-heading"><div><span className="step">03</span><div><h2>Your comparison group</h2><p>Based on the latest completed gameweek data.</p></div></div></div>{templates?.players?.length ? <div className="template-list">{templates.players.map(player => <button key={player.playerId} className={Number(selectedPlayer) === Number(player.playerId) ? 'template selected' : 'template'} onClick={() => choosePlayer(player)}><span className="template-rank">0{player.rank}</span><span className="template-name">{player.name}<small>{formatPercent(player.ownershipPct, 1)} owned</small></span><span className="template-arrow">→</span></button>)}</div> : <div className="empty">Connect your team to load the current rank-tier templates.</div>}</div></section>
         {result && <section className="results-section"><div className="result-heading"><div><div className="eyebrow">RESULT · {result.player.name}</div><h2>The risk is <span className={Number(result.relativeSwing) >= 0 ? 'positive' : 'negative'}>{Number(result.relativeSwing) >= 0 ? 'in your favour' : 'against you'}.</span></h2></div><div className="result-swing"><strong>{Number(result.relativeSwing) >= 0 ? '+' : ''}{Number(result.relativeSwing).toFixed(2)}</strong><span>expected pts</span></div></div><div className="result-grid"><div className="result-card"><span>Ownership</span><strong>{formatPercent(result.ownershipPct, 1)}</strong><small>of managers in your tier</small></div><div className="result-card"><span>Your EO</span><strong>{formatEO(result.userExposure)}</strong><small>your effective exposure</small></div><div className="result-card"><span>Tier EO</span><strong>{formatEO(result.tierExposure)}</strong><small>comparison average</small></div><div className="result-card"><span>EO Difference</span><strong className={Number(result.userExposure) >= Number(result.tierExposure) ? 'positive' : 'negative'}>{Number(result.userExposure) >= Number(result.tierExposure) ? '+' : ''}{((Number(result.userExposure) - Number(result.tierExposure)) * 100).toFixed(0)}%</strong><small>versus your tier</small></div><div className="result-card"><span>Percentile</span><strong>{result.exposurePercentile}</strong><small>exposure position</small></div><div className="result-card"><span>Captaincy</span><strong>{formatPercent(result.captainPct, 1)}</strong><small>managers in your tier</small></div></div><div className="analysis-bottom"><div className="panel exposure-panel"><div className="mini-heading"><h3>Exposure picture</h3></div><ExposureBar value={result.userExposure} label="Your EO" /><ExposureBar value={result.tierExposure} label="Tier EO" /><div className="swing-note"><span>Relative expected swing</span><strong className={Number(result.relativeSwing) >= 0 ? 'positive' : 'negative'}>{Number(result.relativeSwing) >= 0 ? '+' : ''}{Number(result.relativeSwing).toFixed(2)} pts</strong></div></div></div></section>}
         <section className="footer-tools"><button className="key-button" onClick={() => setShowKey(v => !v)}>What do these numbers mean? <span>{showKey ? '↑' : '→'}</span></button>{showKey && <div className="key-grid">{KEY_ITEMS.map(([title, body]) => <div key={title}><strong>{title}</strong><p>{body}</p></div>)}</div>}</section>
