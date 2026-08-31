@@ -36,6 +36,8 @@ function formatNumber(value) {
   return Number.isFinite(n) ? n.toLocaleString() : '—'
 }
 
+const POSITION_NAMES = { 1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD' }
+
 async function apiRequest(path, token, options = {}) {
   if (!token) throw new Error('Your sign-in session is not ready. Please try again.')
 
@@ -102,10 +104,15 @@ function App() {
   const selectedTemplate = useMemo(() => templates?.players?.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [templates, selectedPlayer])
   const selectedGeneralPlayer = useMemo(() => players.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [players, selectedPlayer])
   const selectedPlayerName = selectedGeneralPlayer?.name || selectedTemplate?.name || result?.player?.name || 'Choose a player'
+  const getPlayerMeta = player => {
+    const team = player.teamName || player.team || player.teamShortName || (player.teamId ? `Team ${player.teamId}` : '')
+    const position = player.positionName || POSITION_NAMES[player.position] || ''
+    return [team, position].filter(Boolean).join(' · ')
+  }
   const filteredPlayers = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return players.slice(0, 10)
-    return players.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12)
+    return players.filter(p => `${p.name} ${p.firstName || ''} ${p.lastName || ''} ${getPlayerMeta(p)}`.toLowerCase().includes(q)).slice(0, 12)
   }, [players, query])
 
   useEffect(() => {
