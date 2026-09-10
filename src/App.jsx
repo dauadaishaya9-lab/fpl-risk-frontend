@@ -36,6 +36,33 @@ function App() {
     await installPrompt.userChoice
     setInstallPrompt(null)
   }
+
+  async function shareApp() {
+    const shareData = {
+      title: 'FPL Risk',
+      text: 'Check out FPL Risk 👀\nSee how your FPL decisions compare with managers around your rank.',
+      url: window.location.origin
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData)
+      } else {
+        await navigator.clipboard.writeText(shareData.url)
+        alert('FPL Risk link copied!')
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        try {
+          await navigator.clipboard.writeText(shareData.url)
+          alert('FPL Risk link copied!')
+        } catch {
+          alert(shareData.url)
+        }
+      }
+    }
+  }
+
   const { isLoaded: authLoaded, isSignedIn, getToken } = useAuth(); const { user } = useUser(); const [teamId, setTeamId] = useState(''); const [account, setAccount] = useState(null); const [templates, setTemplates] = useState(null); const [players, setPlayers] = useState([]); const [query, setQuery] = useState(''); const [selectedPlayer, setSelectedPlayer] = useState(null); const [playerPickerOpen, setPlayerPickerOpen] = useState(false); const [owns, setOwns] = useState(true); const [captain, setCaptain] = useState(false); const [tripleCaptain, setTripleCaptain] = useState(false); const [expectedPoints, setExpectedPoints] = useState(''); const [usage, setUsage] = useState(null); const [result, setResult] = useState(null); const [loading, setLoading] = useState(true); const [working, setWorking] = useState(false); const [error, setError] = useState(''); const [showKey, setShowKey] = useState(false); const [showAbout, setShowAbout] = useState(false); const [showFplIdHelp, setShowFplIdHelp] = useState(false); const [showExpectedPointsHelp, setShowExpectedPointsHelp] = useState(false); const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const selectedTemplate = useMemo(() => templates?.players?.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [templates, selectedPlayer]); const selectedGeneralPlayer = useMemo(() => players.find(p => Number(p.playerId) === Number(selectedPlayer)) || null, [players, selectedPlayer]); const selectedPlayerName = selectedGeneralPlayer?.name || selectedTemplate?.name || result?.player?.name || 'Choose a player'
   const getPlayerMeta = player => { const team = player.teamName || player.team || player.teamShortName || (player.teamId ? `Team ${player.teamId}` : ''); const position = player.positionName || POSITION_NAMES[player.position] || ''; return [team, position].filter(Boolean).join(' · ') }
@@ -151,6 +178,6 @@ function App() {
       </div>
     </div>
   </section>
-)}<section className="footer-tools"><button className="key-button" onClick={() => setShowAbout(v => !v)}>About FPL Risk <span>{showAbout ? '↑' : '→'}</span></button>{showAbout && <div className="about-card"><div className="eyebrow">THE IDEA</div><h3>Know Your Real Risk</h3><p>Every FPL decision looks different depending on who you're actually racing. The same captain pick can be the sensible, safe choice for one manager and the wrong strategic call for another — not because the player himself is risky, but because “safe” only means something relative to who you're trying to catch or hold off. Most tools ignore this. We don't.</p><p>This calculator compares your transfers, captain picks, and Triple Captain calls against real managers sitting at your actual rank — not the entire FPL population, not some generic average. Someone battling for a top 10k finish is playing a completely different game from someone climbing back from the millions, and your risk profile should reflect that.</p><p>Every gameweek, right before the deadline, we lock in a live snapshot of real managers across the rank spectrum. Once it's locked, it can't be changed retroactively, so the picture you see is an honest, frozen moment of what your actual rivals were doing when it mattered — not a moving target.</p><p>From there, ask about any player: how many managers at your rank own them, how many are captaining them, and how many have gone all-in with the Triple Captain. Suddenly, “everyone has him, right?” has an actual answer — specific to you, not the internet's general vibes.</p><p>The system is built to always give you a real answer. If data for your exact bracket is ever thin, it intelligently uses the closest comparable group rather than leaving you with nothing.</p><p>This isn't about following the crowd. It's about knowing exactly who your crowd actually is, so every differential, template pick, and armband decision is a calculated one.</p><p><strong>Free:</strong> 3 calculations per week. <strong>Premium:</strong> 30 calculations per week.</p></div>}<button className="key-button" onClick={() => setShowKey(v => !v)}>What do these numbers mean? <span>{showKey ? '↑' : '→'}</span></button>{showKey && <div className="key-grid">{KEY_ITEMS.map(([title, body]) => <div key={title}><strong>{title}</strong><p>{body}</p></div>)}</div>}</section></>}</div></main>
+)}<section className="footer-tools"><button className="key-button" onClick={() => setShowAbout(v => !v)}>About FPL Risk <span>{showAbout ? '↑' : '→'}</span></button>{showAbout && <div className="about-card"><div className="eyebrow">THE IDEA</div><h3>Know Your Real Risk</h3><p>Every FPL decision looks different depending on who you're actually racing. The same captain pick can be the sensible, safe choice for one manager and the wrong strategic call for another — not because the player himself is risky, but because “safe” only means something relative to who you're trying to catch or hold off. Most tools ignore this. We don't.</p><p>This calculator compares your transfers, captain picks, and Triple Captain calls against real managers sitting at your actual rank — not the entire FPL population, not some generic average. Someone battling for a top 10k finish is playing a completely different game from someone climbing back from the millions, and your risk profile should reflect that.</p><p>Every gameweek, right before the deadline, we lock in a live snapshot of real managers across the rank spectrum. Once it's locked, it can't be changed retroactively, so the picture you see is an honest, frozen moment of what your actual rivals were doing when it mattered — not a moving target.</p><p>From there, ask about any player: how many managers at your rank own them, how many are captaining them, and how many have gone all-in with the Triple Captain. Suddenly, “everyone has him, right?” has an actual answer — specific to you, not the internet's general vibes.</p><p>The system is built to always give you a real answer. If data for your exact bracket is ever thin, it intelligently uses the closest comparable group rather than leaving you with nothing.</p><p>This isn't about following the crowd. It's about knowing exactly who your crowd actually is, so every differential, template pick, and armband decision is a calculated one.</p><p><strong>Free:</strong> 3 calculations per week. <strong>Premium:</strong> 30 calculations per week.</p></div>}<button className="key-button" onClick={() => setShowKey(v => !v)}>What do these numbers mean? <span>{showKey ? '↑' : '→'}</span></button>{showKey && <div className="key-grid">{KEY_ITEMS.map(([title, body]) => <div key={title}><strong>{title}</strong><p>{body}</p></div>)}</div>}<button className="key-button" onClick={shareApp} type="button">Share FPL Risk <span>↗</span></button></section></>}</div></main>
 }
 export default App
